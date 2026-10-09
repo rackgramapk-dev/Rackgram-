@@ -1,0 +1,604 @@
+supported on this device");
+ let st;try{st=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){return toast("Allow the microphone to record")}
+ const mime=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus","audio/mp4"].find(t=>MediaRecorder.isTypeSupported(t))||"";
+ let rec;try{rec=new MediaRecorder(st,mime?{mimeType:mime,audioBitsPerSecond:32000}:undefined)}catch(e){st.getTracks().forEach(t=>t.stop());return toast("Couldn't start recording")}
+ const R={rec,st,ch:[],t0:Date.now(),n,send:false,tick:0};X.rec=R;
+ rec.ondataavailable=e=>{if(e.data&&e.data.size)R.ch.push(e.data)};
+ rec.onstop=()=>{clearInterval(R.tick);st.getTracks().forEach(t=>t.stop());X.rec=null;const secs=(Date.now()-R.t0)/1000;
+  if(openChatId()===R.n)composer(R.n);
+  if(!R.send)return;if(secs<1)return toast("Too short");
+  const type=(rec.mimeType||mime||"audio/webm").split(";")[0],blob=new Blob(R.ch,{type}),ext=type.includes("ogg")?"ogg":type.includes("mp4")?"m4a":"webm";
+  sendMedia(R.n,"au",blob,ext,type,{secs})};
+ rec.start(300);
+ $("cin").innerHTML=`<div class="rec"><button class="rcx" id="rcx" aria-label="Cancel recording">${ICO_TRASH}</button><span class="rdot"></span><span id="rct">0:00</span><span class="grow"></span><button id="rcs">Send</button></div>`;
+ $("rcx").onclick=()=>{R.send=false;rec.stop()};$("rcs").onclick=()=>{R.send=true;rec.stop()};
+ R.tick=setInterval(()=>{const s=(Date.now()-R.t0)/1000,e=$("rct");if(e)e.textContent=fmtDur(s);
+  if(openChatId()!==R.n){R.send=false;try{rec.stop()}catch(x){}return}
+  if(s>=600){R.send=true;try{rec.stop()}catch(x){}}},250)}
+
+/* video: max 3 minutes. In-app recorder uses a low bitrate so 3 min always fits the upload limit */
+const VMAX=180,VBYTES=50*1024*1024,OKV=["video/mp4","video/webm","video/quicktime","video/3gpp"];
+const extOf=t=>t.includes("webm")?"webm":t.includes("quicktime")?"mov":t.includes("3gpp")?"3gp":"mp4";
+function confirmVideo(n,blob,ext,type){
+ const url=URL.createObjectURL(blob);
+ sheet(`<h3>Send video</h3><video class="pvw" src="${url}" controls playsinline></video><button class="rowb" id="vds">Send</button><button class="rowb" data-x="1">Cancel</button>`);
+ $("vds").onclick=()=>{unsheet();sendMedia(n,"vd",blob,ext,type)}}
+function onVidPick(e){
+ const f=e.target.files[0];e.target.value="";if(!f||!attTo)return;const n=attTo;
+ const type=(f.type||"").split(";")[0]||"video/mp4";
+ if(!OKV.includes(type))return toast("This video format isn't supported");
+ if(f.size>VBYTES)return toast("Video is too big (max 50 MB). Try recording it in the app.");
+ const url=URL.createObjectURL(f),v=document.createElement("video");v.preload="metadata";
+ v.onloadedmetadata=()=>{const dur=v.duration;URL.revokeObjectURL(url);if(isFinite(dur)&&dur>VMAX+1)return toast("Video can be at most 3 minutes");confirmVideo(n,f,extOf(type),type)};
+ v.onerror=()=>{URL.revokeObjectURL(url);confirmVideo(n,f,extOf(type),type)};
+ v.src=url}
+async function vidOpen(V){
+ if(V.st)V.st.getTracks().forEach(t=>t.stop());
+ V.st=await navigator.mediaDevices.getUserMedia({video:{facingMode:V.facing,width:{ideal:960},height:{ideal:540},frameRate:{ideal:24,max:30}},audio:true});
+ const v=$("vrv");v.srcObject=V.st;v.style.transform=V.facing==="user"?"scaleX(-1)":""}
+function vidClose(V){clearInterval(V.tick);if(V.st)V.st.getTracks().forEach(t=>t.stop());const o=$("vrec");if(o)o.remove();X.vrec=null}
+async function vidRecStart(n){
+ if(X.vrec)return;
+ if(!navigator.mediaDevices||!window.MediaRecorder)return toast("Video recording isn't supported on this device");
+ const V={n,facing:"user",st:null,rec:null,ch:[],t0:0,send:false,tick:0};X.vrec=V;
+ const o=document.createElement("div");o.id="vrec";
+ o.innerHTML='<video id="vrv" muted playsinline autoplay></video><div class="vtop"><span class="rdot hide" id="vrd"></span><span id="vrt">0:00</span><span>/ 3:00</span></div><div class="vb"><button id="vrx">Cancel</button><button class="go" id="vrg" aria-label="Record"></button><button id="vrf">Flip</button></div>';
+ document.body.appendChild(o);
+ try{await vidOpen(V)}catch(e){vidClose(V);return toast("Allow camera and microphone to record video")}
+ $("vrx").onclick=()=>{if(V.rec&&V.rec.state==="recording"){V.send=false;V.rec.stop()}else vidClose(V)};
+ $("vrf").onclick=async()=>{if(V.rec&&V.rec.state==="recording")return;V.facing=V.facing==="user"?"environment":"user";try{await vidOpen(V)}catch(e){toast("Can't switch camera")}};
+ $("vrg").onclick=()=>{
+  if(V.rec&&V.rec.state==="recording"){V.send=true;V.rec.stop();return}
+  const mime=["video/webm;codecs=vp8,opus","video/webm","video/mp4"].find(t=>MediaRecorder.isTypeSupported(t))||"";
+  try{V.rec=new MediaRecorder(V.st,mime?{mimeType:mime,videoBitsPerSecond:800000,audioBitsPerSecond:64000}:{videoBitsPerSecond:800000})}catch(e){return toast("Couldn't start recording")}
+  V.ch=[];V.rec.ondataavailable=e=>{if(e.data&&e.data.size)V.ch.push(e.data)};
+  V.rec.onstop=()=>{const secs=(Date.now()-V.t0)/1000,type=(V.rec.mimeType||mime||"video/webm").split(";")[0],send=V.send,ch=V.ch,n2=V.n;vidClose(V);
+   if(!send)return;if(secs<1)return toast("Too short");
+   confirmVideo(n2,new Blob(ch,{type}),extOf(type),type)};
+  V.t0=Date.now();V.rec.start(500);$("vrg").classList.add("on");$("vrd").classList.remove("hide");$("vrx").textContent="Discard";
+  V.tick=setInterval(()=>{const s=(Date.now()-V.t0)/1000,e=$("vrt");if(e)e.textContent=fmtDur(s);if(s>=VMAX){V.send=true;try{V.rec.stop()}catch(x){}}},250)}}
+
+attachSheet=function(n){attTo=n;
+ sheet('<h3>Send</h3><button class="rowb" id="acm">Take photo</button><button class="rowb" id="agl">Photo from gallery</button><button class="rowb" id="avr">Record video (max 3 min)</button><button class="rowb" id="avg">Video from gallery (max 3 min)</button><button class="rowb" data-x="1">Cancel</button>');
+ $("acm").onclick=()=>{unsheet();$("fcam").click()};$("agl").onclick=()=>{unsheet();$("fgal").click()};
+ $("avr").onclick=()=>{unsheet();vidRecStart(n)};$("avg").onclick=()=>{unsheet();$("fvid").click()}};
+
+/* =====================================================================================
+   Composer, reply bar, edit
+   ===================================================================================== */
+function paintBar(){const b=$("cbar");if(!b)return;const r=X.reply,e=X.edit;
+ if(!r&&!e){b.classList.add("hide");b.innerHTML="";return}
+ b.classList.remove("hide");
+ b.innerHTML=`<div class="cq"><b>${e?"Edit message":"Reply to "+esc(r.who)}</b><span>${esc(e?e.orig:r.t)}</span></div><button id="cbx" aria-label="Cancel">✕</button>`;
+ $("cbx").onclick=()=>{if(X.edit&&$("mi")){$("mi").value="";X.upd&&X.upd()}X.reply=null;X.edit=null;paintBar()}}
+function startReply(id){const n=cv&&cv.n;if(!n)return;const x=Lr(n).find(y=>y.id===id);if(!x||!$("mi"))return;
+ X.reply={id,who:x.i?(isGrp(n)?nameOf(x.s):nameOf(n)):"You",t:snip(x).slice(0,80)};X.edit=null;paintBar();$("mi").focus()}
+function startEdit(id){const n=cv&&cv.n;if(!n)return;const x=Lr(n).find(y=>y.id===id);if(!x||!$("mi"))return;
+ X.edit={id,n,orig:x.t,fw:x.fw,g:isGrp(n)};X.reply=null;paintBar();$("mi").value=x.t;X.upd&&X.upd();$("mi").focus()}
+async function commitEdit(t){const e=X.edit;X.edit=null;paintBar();if(!e||t===e.orig)return;
+ const x=Lr(e.n).find(y=>y.id===e.id);if(!x)return;
+ const r=await sb.from(e.g?"group_messages":"messages").update({body:(e.fw?"↪ Forwarded\n":"")+t}).eq("id",e.id).select("body,edited_at").single();
+ if(r.error){toast(/too old/i.test(String(r.error.message))?"Too old to edit (48 hours)":"Couldn't edit message");return}
+ x.t=t;x.ed=r.data.edited_at||new Date().toISOString();if(openChatId()===e.n)drawMsgs(e.n,true)}
+
+function composer(n){
+ const d=find(n),cin=$("cin");if(!d||!cin)return;
+ if(ST.blk.includes(n)){cin.innerHTML=`<div class="blk">You blocked this contact.<button id="ub">Unblock</button></div>`;
+  $("ub").onclick=()=>{ST.blk.splice(ST.blk.indexOf(n),1);sv_();blockDb(n,false);toast("Unblocked");go(cv,false)};return}
+ if(d.k!=="acc"&&!d.member){cin.innerHTML=`<div class="blk"><button id="jn">Join ${d.k==="cha"?"channel":"group"}</button></div>`;$("jn").onclick=()=>joinPublic(n);return}
+ if(d.k==="cha"&&!isAdm(d)){cin.innerHTML=`<div class="blk">Only admins can post in this channel</div>`;return}
+ if(d.k==="grp"&&!isAdm(d)&&!d.cs){cin.innerHTML=`<div class="blk">Only admins can send messages in this group</div>`;return}
+ const media=d.k==="acc"||isAdm(d)||d.cm!==false;
+ cin.innerHTML=`${media?'<button id="att" aria-label="Attach">':'<span style="display:none">'}<svg viewBox="0 0 24 24"><path d="M21 12.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a1.8 1.8 0 0 1-2.6-2.6l8.3-8.3"/></svg>${media?"</button>":"</span>"}<input id="mi" placeholder="Message" autocomplete="off" aria-label="Message" maxlength="4000">${media?'<button id="mic" aria-label="Record voice message"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>':""}<button id="ms" class="hide">Send</button>`;
+ const mi=$("mi"),upd=()=>{const has=!!mi.value.trim();$("ms").classList.toggle("hide",!has);if($("mic"))$("mic").classList.toggle("hide",has)};X.upd=upd;
+ const send=()=>{const t=mi.value.trim();if(!t)return;
+  if(X.edit)commitEdit(t);else{const rp=X.reply&&X.reply.id;X.reply=null;paintBar();sendText(n,t,rp)}
+  mi.value="";upd();setDraft(n,"");if(!isGrp(n))stopTyp(n);mi.focus()};
+ $("ms").onclick=send;mi.onkeydown=e=>{if(e.key==="Enter")send()};
+ if(media){$("att").onclick=()=>attachSheet(n);$("mic").onclick=()=>recStart(n)}
+ mi.oninput=()=>{upd();if(!X.edit)setDraft(n,mi.value);if(!isGrp(n)){if(mi.value.trim())sendTyp(n);else stopTyp(n)}};{const dr=getDraft(n);if(dr&&!mi.value&&!X.edit)mi.value=dr}upd()}
+
+showChat=function(n){
+ SEL.clear();const d=find(n);if(!d)return;
+ if(X.cn!==n){X.reply=null;X.edit=null;closeSearch(true);X.cn=n}
+ show(6);
+ $("chh").innerHTML=hdr(d);$("chh").onclick=()=>go({t:"p",n});
+ if(d.k==="acc"&&TIMERS[n]){const s=$("chh").querySelector(".s");if(s)s.insertAdjacentHTML("beforeend"," · ⏱ "+TL[TIMERS[n]])}
+ dots($("cdw"),d);
+ if(X.au&&X.aun){X.au.pause()}
+ drawMsgs(n);
+ if(d.k==="acc")markRead(n);else if(d.member)markGRead(n);
+ composer(n);paintBar();
+ if(isGrp(n)&&Date.now()-(X.glAt||0)>20000){X.glAt=Date.now();loadGroups()}
+};
+
+/* =====================================================================================
+   Message menu (tap), selection, delete, forward, search
+   ===================================================================================== */
+tapMsg=function(e,b){const id=+b.dataset.id;if(!id)return;
+ const now=Date.now();
+ if(rxLastId===id&&now-rxLast<300){clearTimeout(rxT);rxLast=0;rxLastId=0;hideRx();react(id,"❤️");return}
+ rxLast=now;rxLastId=id;clearTimeout(rxT);rxT=setTimeout(()=>{rxLast=0;rxLastId=0;showRx(b,id)},300)};
+showRx=function(b,id){
+ hideRx();const n=cv&&cv.n,g=isGrp(n),x=Lr(n).find(y=>y.id===id);if(!x)return;
+ const rOk=!g||!GRP[n].member||GRP[n].cr!==false||isAdm(GRP[n]),mine=g?((GRX[id]||{})[me.id]||{}).emoji:((RX[id]||{})[me.id]||{}).emoji,out=b.classList.contains("out"),d=document.createElement("div");d.id="rx";
+ const media=x.img||x.vd||x.au,canEdit=!x.i&&!media&&Date.now()-x.ts<48*36e5,canDel=g?(!x.i||isAdm(GRP[n])):true;
+ d.innerHTML=(!rOk?"":'<div class="rxr">'+QR.map(e=>`<button data-e="${e}" class="${e===mine?"me":""}">${e}</button>`).join("")+'<button data-more="1" aria-label="More emojis">⋯</button></div>')
+  +'<div class="rxa" style="align-self:'+(out?"flex-end":"flex-start")+'"><button data-rp="1">Reply</button>'+(media?"":'<button data-cpy="1">Copy</button>')+(canEdit?'<button data-ed="1">Edit</button>':"")+'<button data-fw="1">Forward</button>'+(canDel?'<button data-dl="1" style="color:var(--err)">Delete</button>':"")+"</div>";
+ document.body.appendChild(d);const r=b.getBoundingClientRect(),w=d.offsetWidth,h=d.offsetHeight;
+ let top=r.top-h-6;if(top<8)top=Math.min(r.bottom+6,innerHeight-h-8);
+ let left=out?r.right-w:r.left;left=Math.max(8,Math.min(left,innerWidth-w-8));d.style.top=top+"px";d.style.left=left+"px";
+ d.onclick=ev=>{ev.stopPropagation();const k=ev.target.closest("button");if(!k)return;hideRx();
+  if(k.dataset.more)return emojiBox(id);if(k.dataset.rp)return startReply(id);if(k.dataset.ed)return startEdit(id);
+  if(k.dataset.fw)return fwdSheet(x);if(k.dataset.cpy)return copyTxt(x.t,"Copied");
+  if(k.dataset.dl){SEL.clear();SEL.add(id);return delSelSheet()}
+  react(id,k.dataset.e)}};
+
+rmIds=function(ids){const S=new Set(ids);Object.keys(MSG).forEach(k=>{MSG[k]=MSG[k].filter(x=>!S.has(x.id))});ids.forEach(i=>SEL.delete(i));
+ if(open6()&&cv&&cv.t==="c"){drawMsgs(cv.n,true);selUI()}else if(!$("s4").classList.contains("hide"))render()};
+function rmGIds(ids,gid){const S=new Set(ids);(gid?[gid]:Object.keys(GM)).forEach(k=>{if(GM[k])GM[k]=GM[k].filter(x=>!S.has(x.id))});ids.forEach(i=>SEL.delete(i));
+ if(open6()&&cv&&isGrp(cv.n)){drawMsgs(cv.n,true);selUI()}else if(!$("s4").classList.contains("hide"))render()}
+copySel=async function(){const t=Lr(cv.n).filter(x=>SEL.has(x.id)).map(x=>x.t).join("\n");let ok=false;
+ try{await navigator.clipboard.writeText(t);ok=true}catch(e){const a=document.createElement("textarea");a.value=t;a.style.cssText="position:fixed;opacity:0";document.body.appendChild(a);a.select();try{ok=document.execCommand("copy")}catch(e2){}a.remove()}
+ toast(ok?"Copied":"Couldn't copy");SEL.clear();selUI()};
+delSelSheet=function(){const n=cv.n,g=isGrp(n);let ids=[...SEL];
+ if(g&&!isAdm(GRP[n]))ids=ids.filter(id=>{const x=Lr(n).find(y=>y.id===id);return x&&!x.i});
+ if(!ids.length){SEL.clear();selUI();return toast("You can only delete your own messages")}
+ sheet(`<h3>Delete ${ids.length} message(s)?</h3><div class="sec" style="padding:0 0 10px">${g?"They will be deleted for everyone.":"They will be deleted for both sides."}</div><button class="rowb out" id="dsy">Delete</button><button class="rowb" data-x="1">Cancel</button>`);
+ $("dsy").onclick=async()=>{const r=await sb.from(g?"group_messages":"messages").delete().in("id",ids).select("id");
+  if(r.error){toast("Couldn't delete");return}unsheet();const done=(r.data||[]).map(x=>x.id);
+  if(!done.length){toast("Nothing was deleted");return}g?rmGIds(done,n):rmIds(done);toast("Deleted")}};
+
+fwdSheet=function(m){if(!m)return;
+ const T=id=>{const L=Lr(id);return(L[L.length-1]||{ts:0}).ts};
+ const P=Object.values(PEOPLE).filter(x=>x.k==="acc"&&x.id!==me.id&&!ST.blk.includes(x.id)).map(x=>({id:x.id,n:x.n,s:x.u?"@"+x.u:""}));
+ const G=Object.values(GRP).filter(g=>g.member&&(g.k==="grp"||isAdm(g))).map(g=>({id:g.id,n:g.n,s:g.k==="cha"?"Channel":"Group"}));
+ const L=P.concat(G).sort((a,b)=>T(b.id)-T(a.id));
+ sheet('<h3>Forward to...</h3>'+(L.length?L.map(x=>`<button class="rowb sp" data-p="${esc(String(x.id))}"><span>${esc(x.n)}</span><span class="s">${esc(x.s)}</span></button>`).join(""):'<div class="empty">No chats yet</div>')+'<button class="rowb" data-x="1">Cancel</button>');
+ $("sheet").querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{unsheet();sendFwd(b.dataset.p,m)})};
+sendFwd=async function(o,m){const row={body:"↪ Forwarded\n"+(m.img?"📷 Photo":(m.t||"").slice(0,3980)),client_id:uid4()};
+ if(m.img)row.image_url=m.img;if(m.vd)row.video_url=m.vd;if(m.au){row.audio_url=m.au;row.audio_secs=m.asec||0}
+ const r=await insertRow(o,row);if(r.error){toast("Couldn't forward");return}addAny(o,r.data);const d=find(o);toast("Forwarded to "+(d?d.n:""))};
+
+/* search inside a chat */
+function openSearch(){const n=cv&&cv.n;if(!n)return;const b=$("csr");b.classList.remove("hide");
+ b.innerHTML='<input id="csi" placeholder="Search in chat" autocomplete="off" aria-label="Search in chat"><span class="cc" id="csc"></span><button id="csu" aria-label="Older match">▲</button><button id="csd" aria-label="Newer match">▼</button><button id="csx" aria-label="Close search">✕</button>';
+ $("csi").oninput=runSearch;$("csu").onclick=()=>stepHit(-1);$("csd").onclick=()=>stepHit(1);$("csx").onclick=()=>closeSearch();$("csi").focus()}
+function runSearch(){const q=$("csi").value.trim().toLowerCase(),n=cv.n;X.sq=q;X.hits=[];X.hi=-1;
+ if(q){vis(n).forEach(x=>{if(x.id>0&&!x.img&&!x.vd&&!x.au&&(x.t||"").toLowerCase().includes(q))X.hits.push(x.id)});if(X.hits.length)X.hi=X.hits.length-1}
+ $("csc").textContent=q?(X.hits.length?(X.hi+1)+"/"+X.hits.length:"0"):"";drawMsgs(n,true)}
+function stepHit(d){if(!X.hits.length)return;X.hi=(X.hi+d+X.hits.length)%X.hits.length;$("csc").textContent=(X.hi+1)+"/"+X.hits.length;drawMsgs(cv.n,true)}
+function closeSearch(silent){X.sq="";X.hits=[];X.hi=-1;const b=$("csr");if(b){b.classList.add("hide");b.innerHTML=""}if(!silent&&cv&&open6())drawMsgs(cv.n)}
+
+/* chat header menu */
+const _dots=dots;
+function pinLabel(n){return PREFS[n]&&PREFS[n].pinned?"Unpin chat":"Pin chat"}
+function arcLabel(n){return PREFS[n]&&PREFS[n].archived?"Unarchive chat":"Archive chat"}
+dots=function(el,d){
+ const n=K(d);
+ if(d.k==="acc"){
+  _dots(el,d);const b=el.querySelector("button.dots");if(!b)return;const o=b.onclick;
+  b.onclick=ev=>{o(ev);const m=$("menu"),tm=TIMERS[n]||0;
+   m.insertAdjacentHTML("afterbegin",`<button data-x2="srch">Search in chat</button><button data-x2="pin">${pinLabel(n)}</button><button data-x2="arc">${arcLabel(n)}</button><button data-x2="tmr">Disappearing messages${tm?" ("+TL[tm]+")":""}</button>`);
+   const oc=m.onclick;m.onclick=x=>{const a=x.target.dataset.x2;if(!a){oc(x);return}m.classList.add("hide");menuAct(a,n)}};
+  return}
+ el.style.width="auto";el.innerHTML='<button class="tx dots" aria-label="More">⋮</button>';
+ el.querySelector("button.dots").onclick=ev=>{ev.stopPropagation();const m=$("menu");
+  m.innerHTML=`<button data-x2="srch">Search in chat</button><button data-x2="info">${d.k==="cha"?"Channel":"Group"} info</button><button data-x2="pin">${pinLabel(n)}</button><button data-x2="arc">${arcLabel(n)}</button><button data-x2="mute">${MUTED.includes(n)?"Unmute":"Mute"}</button>`;
+  m.classList.toggle("hide");m.onclick=x=>{const a=x.target.dataset.x2;if(!a)return;m.classList.add("hide");menuAct(a,n)}}};
+function menuAct(a,n){
+ if(a==="srch"){if(!(open6()&&cv&&cv.n===n))go({t:"c",n});openSearch();return}
+ if(a==="pin")return togglePin(n);
+ if(a==="arc")return setPref(n,{archived:!(PREFS[n]&&PREFS[n].archived)}).then(()=>toast(PREFS[n]&&PREFS[n].archived?"Chat archived":"Chat unarchived"));
+ if(a==="tmr")return timerSheet(n);
+ if(a==="mute")return toggleMute(n);
+ if(a==="info")return go({t:"p",n})}
+
+/* =====================================================================================
+   Chat list: pin / archive, long-press sheet, public group search
+   ===================================================================================== */
+(function(){const s=document.createElement("style");s.textContent=`.pane .it{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}`;document.head.appendChild(s)})();
+async function loadPrefs(){try{const r=await sb.from("chat_prefs").select("chat_id,pinned,archived");if(r.error)return;PREFS={};(r.data||[]).forEach(x=>{PREFS[x.chat_id]={pinned:!!x.pinned,archived:!!x.archived}})}catch(e){}}
+async function setPref(id,p){
+ const cur=PREFS[id]||{pinned:false,archived:false},nx={...cur,...p};
+ if(p.archived===true)nx.pinned=false;
+ if(nx.pinned&&!cur.pinned&&Object.values(PREFS).filter(x=>x.pinned).length>=5){toast("You can pin up to 5 chats");return}
+ PREFS[id]=nx;if(!$("s4").classList.contains("hide"))render();
+ try{const r=await sb.from("chat_prefs").upsert({chat_id:id,pinned:nx.pinned,archived:nx.archived,updated_at:new Date().toISOString()},{onConflict:"user_id,chat_id"});if(r.error)throw r.error}
+ catch(e){PREFS[id]=cur;toast("Couldn't update chat");if(!$("s4").classList.contains("hide"))render()}}
+function togglePin(id){const on=!(PREFS[id]&&PREFS[id].pinned);setPref(id,{pinned:on}).then(()=>{if(PREFS[id]&&PREFS[id].pinned===on)toast(on?"Chat pinned":"Chat unpinned")})}
+
+syncChats=function(){
+ CHATS.length=0;const it=[];
+ const mk=(ts,k,n,pv,h,u,id)=>{const p=PREFS[id]||{};it.push({ts,p:p.pinned?1:0,row:[k,n,pv,h,u,id,!!p.pinned,!!p.archived,MUTED.includes(id)]})};
+ Object.keys(MSG).forEach(id=>{const d=find(id);if(!d||d.k!=="acc")return;const L=vis(id);if(!L.length)return;const l=L[L.length-1];
+  mk(l.ts,"acc",d.n,(l.i?"":"You: ")+snip(l),l.h,L.filter(x=>x.i&&!x.r).length,id)});
+ Object.keys(GRP).forEach(id=>{const d=GRP[id];if(!d.member)return;const L=vis(id),l=L[L.length-1];
+  mk(l?l.ts:(d.ct||0),d.k,d.n,l?((l.i?(d.k==="cha"?"":nameOf(l.s)+": "):"You: ")+snip(l)):"Created just now",l?l.h:"",gUnread(id),id)});
+ it.sort((a,b)=>b.p-a.p||b.ts-a.ts).forEach(x=>CHATS.push(x.row))};
+
+chats=function(){
+ const raw=$("q").value,q=raw.trim().toLowerCase().replace(/^@/,"");
+ $("qx").classList.toggle("hide",!raw);
+ const on=!!raw.trim();$("tabs").classList.toggle("hide",!on);
+ if(!on){
+  const arch=CHATS.filter(c=>c[7]),rows=X.arch?arch:CHATS.filter(c=>!c[7]);
+  let h=X.arch?'<div class="archh"><button class="tx" id="archb">‹ Archived chats</button></div>':trayHtml();
+  if(!X.arch&&arch.length)h+=`<div class="list" style="padding-bottom:0"><div class="it archrow" data-arch="1"><div class="ava a2">📁</div><div class="t"><div class="n">Archived chats</div></div><span class="badge" style="background:var(--card);color:var(--mut)">${arch.length}</span></div></div>`;
+  if(!rows.length)h+='<div class="empty">'+(X.arch?"No archived chats.":"No chats yet.<br>Tap ✎ to create a channel or group, or search for someone.")+"</div>";
+  else h+='<div class="list">'+rows.map(c=>`<div class="it" data-k="${esc(String(c[5]))}">${avatar(c[0],c[1],c[5])}<div class="t"><div class="n">${esc(c[1])}${c[8]?'<span class="mu">🔇</span>':""}</div><div class="s">${esc(c[2])}</div></div><div class="m"><span class="tm">${c[3]}</span>${c[4]?`<span class="badge"${c[8]?' style="opacity:.55"':""}>${c[4]}</span>`:(c[6]?'<span class="pinic">📌</span>':'<span style="height:22px"></span>')}</div></div>`).join("")+"</div>";
+  pane.innerHTML=h;return}
+ const r=DATA.filter(d=>(tab==="all"||d.k===tab)&&(d.n.toLowerCase().includes(q)||(d.u&&d.u.includes(q))));
+ pane.innerHTML=r.length?'<div class="list">'+r.map(d=>{
+  const sub=d.k==="acc"?(d.u?"@"+hl(d.u,q):""):(d.u?"@"+hl(d.u,q)+" · ":"")+(d.m||"");
+  return `<div class="it" data-k="${esc(d.id||d.n)}">${avatar(d.k,d.n,d.id)}<div class="t"><div class="n">${hl(d.n,q)}</div><div class="s">${sub}</div></div><span class="kind">${KIND[d.k]}</span></div>`}).join("")+"</div>"
+  :`<div class="empty">"${esc(raw.trim())}" not found.<br>Try a different name or username.</div>`};
+
+let lpt=0;
+pane.addEventListener("pointerdown",e=>{if(cur2!=="cht")return;const it=e.target.closest(".it[data-k]");if(!it||e.target.closest(".sti"))return;
+ clearTimeout(lpt);lpt=setTimeout(()=>{X.lpl=1;chatSheet(it.dataset.k);setTimeout(()=>{X.lpl=0},700)},480)});
+["pointerup","pointermove","pointercancel","pointerleave"].forEach(t=>pane.addEventListener(t,()=>clearTimeout(lpt)));
+pane.addEventListener("click",e=>{
+ if(X.lpl){X.lpl=0;e.stopImmediatePropagation();e.preventDefault();return}
+ if(e.target.closest("[data-arch]")){e.stopImmediatePropagation();X.arch=true;chats();return}
+ if(e.target.closest("#archb")){e.stopImmediatePropagation();X.arch=false;chats()}},true);
+function chatSheet(id){const d=find(id);if(!d)return;const p=PREFS[id]||{};
+ sheet(`<h3>${esc(d.n)}</h3><button class="rowb" data-c="pin">${p.pinned?"Unpin chat":"Pin chat"}</button><button class="rowb" data-c="arc">${p.archived?"Unarchive chat":"Archive chat"}</button><button class="rowb" data-c="mute">${MUTED.includes(id)?"Unmute":"Mute"}</button><button class="rowb" data-x="1">Close</button>`);
+ $("sheet").onchange=null;
+ $("sheet").querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{unsheet();const a=b.dataset.c;if(a==="pin")togglePin(id);else if(a==="arc")menuAct("arc",id);else toggleMute(id).then(()=>render())})}
+
+const _ab=appBack;
+appBack=function(){
+ if(X.vrec){const V=X.vrec;if(V.rec&&V.rec.state==="recording"){V.send=false;V.rec.stop()}else vidClose(V);return true}
+ if(open6()&&$("csr")&&!$("csr").classList.contains("hide")&&$("sheet").classList.contains("hide")&&!$("rx")){closeSearch();return true}
+ if(!$("s4").classList.contains("hide")&&X.arch&&cur2==="cht"&&$("sheet").classList.contains("hide")&&!$("q").value){X.arch=false;chats();return true}
+ return _ab()};
+
+/* =====================================================================================
+   Real groups & channels (Supabase: groups, group_members, group_messages)
+   ===================================================================================== */
+function gm_(o){const n=o.member?(GMEM[o.id]||[]).length:0;o.m=o.member?n+(o.k==="cha"?" subscriber":" member")+(n===1?"":"s"):(o.k==="cha"?"Public channel":"Public group")}
+function upGrp(g){const o=GRP[g.id]||(GRP[g.id]={member:false,role:"member"});
+ Object.assign(o,{k:g.kind==="channel"?"cha":"grp",id:g.id,n:g.name,u:g.username||"",pub:!!g.is_public,owner:g.owner_id,mine:g.owner_id===me.id,ct:Date.parse(g.created_at),desc:g.description||"",av:g.avatar_url||"",cs:g.can_send!==false,cm:g.can_media!==false,cr:g.can_react!==false});gm_(o);return o}
+const GCOLS="id,kind,name,username,is_public,owner_id,created_at,description,avatar_url,can_send,can_media,can_react";
+async function loadGroups(){
+ if(!me)return;
+ const oc0=openChatId(),sig=g=>g?[g.member,g.role,g.cs,g.cm].join():"",before=oc0&&isGrp(oc0)?sig(GRP[oc0]):"";
+ const mem=await sb.from("group_members").select("group_id,user_id,role");if(mem.error)return;
+ const mine=(mem.data||[]).filter(x=>x.user_id===me.id),ids=mine.map(x=>x.group_id);
+ GMEM={};(mem.data||[]).forEach(x=>{(GMEM[x.group_id]=GMEM[x.group_id]||[]).push({u:x.user_id,r:x.role})});
+ Object.values(GRP).forEach(o=>{o.member=false});
+ if(ids.length){
+  const g=await sb.from("groups").select(GCOLS).in("id",ids);
+  (g.data||[]).forEach(x=>{const o=upGrp(x);o.member=true;o.role=(mine.find(m=>m.group_id===x.id)||{}).role||"member";gm_(o)});
+  await loadPeople((mem.data||[]).map(x=>x.user_id));
+  X.gl=X.gl||new Set();const need=ids.filter(id=>!X.gl.has(id));
+  if(need.length){const r=await sb.from("group_messages").select("*").in("group_id",need).order("created_at",{ascending:false}).limit(1500);
+   if(!r.error){(r.data||[]).reverse().forEach(m=>{const L=L_(m.group_id);if(!L.some(x=>x.id===m.id))L.push(toG(m))});need.forEach(id=>X.gl.add(id))}}
+ }
+ Object.values(GRP).forEach(o=>{if(!o.member)gm_(o)});
+ const oc=openChatId();
+ if(oc&&isGrp(oc)&&!GRP[oc].member&&!GRP[oc].pub){toast("You're no longer in this group");hist=[];cv=null;cur2="cht";render();show(4);return}
+ if(oc&&isGrp(oc)){const d=GRP[oc];$("chh").innerHTML=hdr(d);if(sig(d)!==before)composer(oc)}
+ if(!$("s4").classList.contains("hide"))render()}
+function startGroupRT(){if(gch)return;
+ gch=sb.channel("rackgram-groups")
+  .on("postgres_changes",{event:"INSERT",schema:"public",table:"group_messages"},e=>{const m=e.new;if(m&&GRP[m.group_id]&&GRP[m.group_id].member)addGMsg(m.group_id,m)})
+  .on("postgres_changes",{event:"UPDATE",schema:"public",table:"group_messages"},e=>{const m=e.new;if(!m)return;const x=(GM[m.group_id]||[]).find(y=>y.id===m.id);if(!x)return;
+   const nb=String(m.body||"").replace(FWR,"");if(nb!==x.t||(m.edited_at&&!x.ed)){x.t=nb;x.ed=m.edited_at||"";if(openChatId()===m.group_id)drawMsgs(m.group_id,true)}})
+  .on("postgres_changes",{event:"DELETE",schema:"public",table:"group_messages"},e=>{const id=e.old&&e.old.id;if(id)rmGIds([id])})
+  .on("postgres_changes",{event:"*",schema:"public",table:"group_reactions"},e=>{const n=e.new,o=e.old;
+   if(e.eventType==="DELETE"){const id=o&&o.id;for(const m in GRX)for(const u in GRX[m])if(GRX[m][u].id===id){delete GRX[m][u];updG(m);return}return}
+   if(!n||!n.message_id)return;(GRX[n.message_id]=GRX[n.message_id]||{})[n.user_id]={id:n.id,emoji:n.emoji};updG(n.message_id)})
+  .on("postgres_changes",{event:"*",schema:"public",table:"group_members"},()=>{clearTimeout(gTimer);gTimer=setTimeout(loadGroups,400)})
+  .subscribe()}
+function openGroup(id){hist=[];cv=null;cur2="cht";$("q").value="";render();show(4);go({t:"c",n:id})}
+async function joinPublic(n){const r=await sb.from("group_members").insert({group_id:n,user_id:me.id,role:"member"});
+ if(r.error&&r.error.code!=="23505"){toast("Couldn't join");return}await loadGroups();if(openChatId()===n)go(cv,false);toast("Joined")}
+
+/* create group / channel */
+openNew=function(k){nk=k;pub=true;$("nt").textContent=k==="cha"?"New channel":"New group";$("nnm").value="";$("nun").value="";nv();show(8)};
+nv=function(){const n=$("nnm").value.trim(),u=$("nun").value.trim().toLowerCase();let ok=n.length>0,msg="",cls="hint";
+ $("tp1").classList.toggle("on",pub);$("tp2").classList.toggle("on",!pub);$("pubw").classList.toggle("hide",!pub);$("prvw").classList.toggle("hide",pub);
+ $("prvw").innerHTML="An invite link is created for you.<br>Only people with the link can join.";
+ if(pub){if(!u){ok=false;msg="A username is required for public ones"}else if(!okUn(u)){ok=false;cls+=" bad";msg=u.length<5?"Username must be at least 5 characters":"Only a-z, 0-9 and _ allowed, and it must start with a letter"}else{cls+=" good";msg="join/"+u}}
+ else msg="Only people with the link can join";
+ $("h8").textContent=msg;$("h8").className=cls;$("ncr").disabled=!ok};
+$("nnm").oninput=nv;$("nun").oninput=nv;
+/* group/channel photo picked on the New screen */
+let NP=null;
+const CAMSVG='<svg viewBox="0 0 24 24" style="width:36px;height:36px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>';
+function paintNP(){const e=$("gav");e.style.background=NP?"url("+NP+") center/cover":"";e.innerHTML=NP?"":CAMSVG;e.style.cursor="pointer";$("gpd8").classList.toggle("hide",!NP);$("gph8").textContent=NP?"Change photo":"Add photo"}
+const fnp=document.createElement("input");fnp.type="file";fnp.accept="image/*";fnp.hidden=true;document.body.appendChild(fnp);
+fnp.onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)pic(f,640,1,d=>{NP=d;paintNP()})};
+$("gph8").onclick=$("gav").onclick=()=>fnp.click();
+$("gpd8").onclick=()=>{NP=null;paintNP()};
+const _openNew=openNew;openNew=function(k){NP=null;paintNP();_openNew(k)};
+async function newGroupPhoto(n,data){const b=await(await fetch(data)).blob(),path=me.id+"/group-"+n+".jpg";
+ const up=await sb.storage.from("avatars").upload(path,b,{upsert:true,contentType:"image/jpeg"});if(up.error)throw up.error;
+ const url=sb.storage.from("avatars").getPublicUrl(path).data.publicUrl+"?v="+Date.now();
+ const r=await sb.from("groups").update({avatar_url:url}).eq("id",n);if(r.error)throw r.error}
+paintNP();
+$("ncr").onclick=async()=>{const n=$("nnm").value.trim(),u=$("nun").value.trim().toLowerCase();$("ncr").disabled=true;
+ const r=await sb.rpc("create_group",{p_kind:nk==="cha"?"channel":"group",p_name:n,p_public:pub,p_username:pub?u:null});
+ if(r.error||!r.data){$("h8").className="hint bad";$("h8").textContent=r.error&&r.error.code==="23505"?"Username unavailable":"Couldn't create, please try again";$("ncr").disabled=false;return}
+ const id=r.data.id;if(NP){try{await newGroupPhoto(id,NP)}catch(e){toast("Photo couldn't upload, add it from group info")}NP=null}await loadGroups();cur2="cht";hist=[];cv=null;render();go({t:"c",n:id});toast(nk==="cha"?"Channel created":"Group created")};
+$("cmp").onclick=e=>{e.stopPropagation();const m=$("menu");
+ m.innerHTML='<button data-a="cha">Create channel</button><button data-a="grp">Create group</button><button data-a="join">Join with link</button>';m.classList.toggle("hide");
+ m.onclick=x=>{const a=x.target.dataset.a;if(!a)return;if(a==="join")joinSheet();else openNew(a)}};
+function joinSheet(){
+ sheet('<h3>Join with link</h3><div class="sec" style="padding:0 0 8px">Paste an invite link or a public username.</div><input id="jlk" placeholder="join/..." autocapitalize="none" autocomplete="off" style="margin-bottom:10px"><div class="hint bad" id="jh"></div><button class="rowb" id="jgo">Join</button><button class="rowb" data-x="1">Cancel</button>');
+ $("jgo").onclick=async()=>{let v=$("jlk").value.trim().replace(/^.*join\//i,"").replace(/^@/,"").trim();if(!v){$("jh").textContent="Enter a link";return}
+  $("jgo").disabled=true;let g=null;
+  const a=await sb.rpc("join_by_code",{p_code:v});if(!a.error&&a.data)g=a.data;
+  if(!g){const b=await sb.from("groups").select(GCOLS).eq("username",v.toLowerCase()).eq("is_public",true).maybeSingle();
+   if(b.data){const j=await sb.from("group_members").insert({group_id:b.data.id,user_id:me.id,role:"member"});if(!j.error||j.error.code==="23505")g=b.data}}
+  if(!g){$("jh").textContent="This link isn't valid";$("jgo").disabled=false;return}
+  unsheet();await loadGroups();openGroup(g.id);toast("Joined")}}
+
+/* search also finds public groups / channels */
+searchUsers=function(){clearTimeout(qt);const q=$("q").value.trim().toLowerCase().replace(/^@/,"");if(!q||!me)return;
+ qt=setTimeout(async()=>{const s=q.replace(/[%,()*\\]/g,"");if(!s)return;
+  const Q=c=>sb.from("profiles").select(c).or(`name.ilike.%${s}%,username.ilike.%${s}%`).neq("id",me.id).limit(20);
+  let r=await Q("id,name,username,bio,avatar_url,last_seen,hide_ls");if(r.error)r=await Q("id,name,username,bio,avatar_url,last_seen");if(r.error)r=await Q("id,name,username,avatar_url,last_seen");
+  let gq={data:[]};try{gq=await sb.from("groups").select(GCOLS).eq("is_public",true).or(`name.ilike.%${s}%,username.ilike.%${s}%`).limit(10)}catch(e){}
+  if($("q").value.trim().toLowerCase().replace(/^@/,"")!==q)return;
+  DATA.length=0;
+  (r.data||[]).forEach(p=>{const o=PEOPLE[p.id]={k:"acc",id:p.id,n:NICK[p.id]||p.name,rn:p.name,av:p.avatar_url||"",u:p.username||"",bio:p.bio||"",ls:p.last_seen,hl:!!p.hide_ls};DATA.push(o)});
+  (gq.data||[]).forEach(g=>DATA.push(upGrp(g)));
+  chats()},250)};
+
+/* group info page */
+const _sp=showProf;
+showProf=function(n){const d=find(n);if(d&&d.k!=="acc")return showGroupProf(n);return _sp(n)};
+function showGroupProf(n){
+ const d=GRP[n];if(!d)return;show(7);$("pdw").innerHTML="";
+ const mem=GMEM[n]||[],adm=isAdm(d),own=d.role==="owner",W=d.k==="cha"?"channel":"group";
+ let h=`<div class="pf">${avatar(d.k,d.n,n)}<div class="name">${esc(d.n)}</div><div class="user">${d.u?"@"+esc(d.u)+" · ":""}${esc(d.m)}</div><div>`
+  +(d.member?`<button class="pb2" id="gpm">Open chat</button><button class="pb2" id="gpmu">${MUTED.includes(n)?"Unmute":"Mute"}</button>`:`<button class="pb2" id="gpj">Join</button>`)+`</div></div>`;
+ if(d.member){
+  if(d.desc)h+=`<div class="grp"><div class="row2"><div class="l"><div class="k">About</div><div class="v" style="white-space:pre-wrap">${esc(d.desc)}</div></div></div></div>`;
+  if(d.pub||adm)h+=`<div class="grp"><div class="row2"><div class="l"><div class="k">${d.pub?"Public link":"Invite link"}</div><div class="v" id="glk">${d.pub?"join/"+esc(d.u):"Tap Copy to get the link"}</div></div><button class="tx" id="gcp">Copy</button></div></div>`;
+  h+=`<div class="sec">${esc(d.m)}</div><div class="list gmem">`;
+  if(adm)h+=`<button class="rowb" data-g="add" style="padding:10px 14px">+ Add member</button>`;
+  const rk={owner:0,admin:1,member:2};
+  mem.slice().sort((a,b)=>rk[a.r]-rk[b.r]).forEach(m=>{const p=PEOPLE[m.u],nm=m.u===me.id?"You":(p?p.n:"Someone");
+   h+=`<div class="it" data-mu="${esc(m.u)}">${m.u===me.id?`<div class="ava">${esc(me.name.trim()[0].toUpperCase())}</div>`:avatar("acc",nm,m.u)}<div class="t"><div class="n">${esc(nm)}</div><div class="s">${m.r==="owner"?"Owner":m.r==="admin"?"Admin":"Member"}</div></div></div>`});
+  h+=`</div><div class="grp">`;
+  if(adm)h+=`<div class="row2"><button class="rowb" data-g="ren">Edit name, photo &amp; description</button></div><div class="row2"><button class="rowb" data-g="perm">Permissions</button></div>`;
+  h+=own?`<div class="row2"><button class="rowb out" data-g="del">Delete ${W}</button></div>`:`<div class="row2"><button class="rowb out" data-g="leave">Leave ${W}</button></div>`;
+  h+="</div>"}
+ const b=$("pbody");b.innerHTML=h;
+ if($("gpm"))$("gpm").onclick=()=>go({t:"c",n});
+ if($("gpmu"))$("gpmu").onclick=async()=>{await toggleMute(n);$("gpmu").textContent=MUTED.includes(n)?"Unmute":"Mute"};
+ if($("gpj"))$("gpj").onclick=()=>joinPublic(n);
+ if($("gcp"))$("gcp").onclick=async()=>{let t=d.pub?"join/"+d.u:null;
+  if(!t){const r=await sb.rpc("group_invite_code",{p_gid:n});if(r.error||!r.data){toast("Couldn't get the link");return}t="join/"+r.data;$("glk").textContent=t}
+  copyTxt(t,"Link copied")};
+ b.onclick=e=>{const g=e.target.closest("[data-g]");if(g)return grpAct(g.dataset.g,n);const it=e.target.closest(".it[data-mu]");if(it)memberSheet(n,it.dataset.mu)}}
+async function grpGone(n){delete GRP[n];delete GM[n];if(X.gl)X.gl.delete(n);await loadGroups();hist=[];cv=null;cur2="cht";render();show(4)}
+function grpAct(a,n){const d=GRP[n],W=d.k==="cha"?"channel":"group";
+ if(a==="add")return addMemberSheet(n);
+ if(a==="perm")return permSheet(n);
+ if(a==="ren")return editInfoSheet(n);
+ if(a==="leave"){sheet(`<h3>Leave ${W}?</h3><div class="sec" style="padding:0 0 10px">You won't get new messages from "${esc(d.n)}".</div><button class="rowb out" id="gy">Leave</button><button class="rowb" data-x="1">Cancel</button>`);
+  $("gy").onclick=async()=>{const r=await sb.from("group_members").delete().eq("group_id",n).eq("user_id",me.id);if(r.error){toast("Couldn't leave");return}unsheet();await grpGone(n);toast("You left")};return}
+ if(a==="del"){sheet(`<h3>Delete ${W}?</h3><div class="sec" style="padding:0 0 10px">"${esc(d.n)}" and all its messages will be deleted for everyone. This can't be undone.</div><button class="rowb out" id="gy">Delete</button><button class="rowb" data-x="1">Cancel</button>`);
+  $("gy").onclick=async()=>{const r=await sb.from("groups").delete().eq("id",n);if(r.error){toast("Couldn't delete");return}unsheet();await grpGone(n);toast("Deleted")}}}
+function memberSheet(n,u){const d=GRP[n];if(u===me.id)return;const m=(GMEM[n]||[]).find(x=>x.u===u);if(!m)return;
+ const p=PEOPLE[u],nm=p?p.n:"Member",own=d.role==="owner",adm=isAdm(d),W=d.k==="cha"?"channel":"group";
+ sheet(`<h3>${esc(nm)}</h3><button class="rowb" data-o="msg">Message</button>${own&&m.r==="member"?'<button class="rowb" data-o="mk">Make admin</button>':""}${own&&m.r==="admin"?'<button class="rowb" data-o="rv">Remove admin</button>':""}${adm&&m.r!=="owner"?'<button class="rowb out" data-o="rm">Remove from '+W+"</button>":""}<button class="rowb" data-x="1">Close</button>`);
+ $("sheet").querySelectorAll("[data-o]").forEach(b=>b.onclick=async()=>{const o=b.dataset.o;unsheet();
+  if(o==="msg"){if(PEOPLE[u]){hist=[];cv=null;cur2="cht";render();show(4);go({t:"c",n:u})}return}
+  let r;if(o==="mk"||o==="rv")r=await sb.from("group_members").update({role:o==="mk"?"admin":"member"}).eq("group_id",n).eq("user_id",u);
+  else r=await sb.from("group_members").delete().eq("group_id",n).eq("user_id",u);
+  if(r.error){toast("Couldn't update");return}await loadGroups();if(cv&&cv.t==="p"&&cv.n===n)showGroupProf(n);toast("Done")})}
+function addMemberSheet(n){const have=new Set((GMEM[n]||[]).map(x=>x.u));
+ const L=Object.values(PEOPLE).filter(x=>x.k==="acc"&&x.id!==me.id&&!have.has(x.id)&&!ST.blk.includes(x.id));
+ sheet("<h3>Add member</h3>"+(L.length?L.map(x=>`<button class="rowb sp" data-p="${esc(String(x.id))}"><span>${esc(x.n)}</span><span class="s">${x.u?"@"+esc(x.u):""}</span></button>`).join(""):'<div class="empty">Find the person with search or chat with them first, then add them here.</div>')+'<button class="rowb" data-x="1">Cancel</button>');
+ $("sheet").querySelectorAll("[data-p]").forEach(b=>b.onclick=async()=>{const r=await sb.from("group_members").insert({group_id:n,user_id:b.dataset.p,role:"member"});unsheet();
+  if(r.error){toast(r.error.code==="23505"?"Already a member":"Couldn't add");return}await loadGroups();showGroupProf(n);toast("Member added")})}
+const _pt=drawPT;
+drawPT=function(d,k){if(k==="gr"){const c=$("pcont");if(!c)return;const G=Object.values(GRP).filter(g=>g.member&&(GMEM[g.id]||[]).some(m=>m.u===d.id));
+ c.innerHTML=G.length?'<div class="list">'+G.map(g=>`<div class="it" data-k="${esc(g.id)}">${avatar(g.k,g.n)}<div class="t"><div class="n">${esc(g.n)}</div><div class="s">${esc(g.m||"")}</div></div></div>`).join("")+"</div>":'<div class="empty">No groups in common</div>';return}
+ return _pt(d,k)};
+$("pbody").addEventListener("click",e=>{const it=e.target.closest("#pcont .it[data-k]");if(it&&GRP[it.dataset.k]){e.stopImmediatePropagation();go({t:"p",n:it.dataset.k})}},true);
+
+/* group info editing: name, description, photo, permissions; reactions in groups */
+function refreshGrpUI(n){if(cv&&cv.t==="p"&&cv.n===n)showGroupProf(n);if(openChatId()===n)$("chh").innerHTML=hdr(GRP[n]);if(!$("s4").classList.contains("hide"))render()}
+function editInfoSheet(n){const d=GRP[n],W=d.k==="cha"?"channel":"group";
+ sheet(`<h3>Edit ${W}</h3><input id="gen" maxlength="40" value="${esc(d.n)}" placeholder="Name" style="margin-bottom:10px"><textarea id="gds" maxlength="255" rows="3" placeholder="Description (optional)" style="width:100%;margin-bottom:10px;border:1px solid var(--line);border-radius:12px;padding:10px;font:inherit;background:var(--bg);color:var(--fg);resize:none">${esc(d.desc||"")}</textarea><button class="rowb" id="gph">Change photo</button>${d.av?'<button class="rowb out" id="gpr">Remove photo</button>':""}<button class="rowb" id="gsv">Save</button><button class="rowb" data-x="1">Cancel</button>`);
+ $("sheet").onchange=null;
+ $("gph").onclick=()=>{X.gpn=n;$("fgdp").click()};
+ if($("gpr"))$("gpr").onclick=async()=>{const r=await sb.from("groups").update({avatar_url:null}).eq("id",n);if(r.error){toast("Couldn't remove photo");return}d.av="";unsheet();refreshGrpUI(n);toast("Photo removed")};
+ $("gsv").onclick=async()=>{const nm=$("gen").value.trim(),ds=$("gds").value.trim();if(!nm){toast("Name can't be empty");return}
+  const r=await sb.from("groups").update({name:nm,description:ds||null}).eq("id",n);if(r.error){toast("Couldn't save");return}
+  d.n=nm;d.desc=ds;unsheet();refreshGrpUI(n);toast("Saved")}}
+function groupPhoto(n,f){pic(f,640,1,async data=>{try{const b=await(await fetch(data)).blob(),path=me.id+"/group-"+n+".jpg";
+ const up=await sb.storage.from("avatars").upload(path,b,{upsert:true,contentType:"image/jpeg"});if(up.error)throw up.error;
+ const url=sb.storage.from("avatars").getPublicUrl(path).data.publicUrl+"?v="+Date.now();
+ const r=await sb.from("groups").update({avatar_url:url}).eq("id",n);if(r.error)throw r.error;
+ GRP[n].av=url;unsheet();refreshGrpUI(n);toast("Photo updated")}catch(e){toast("Couldn't upload photo")}})}
+function permSheet(n){const d=GRP[n],ch=d.k==="cha";
+ sheet(`<h3>Permissions</h3><div class="sec" style="padding:0 0 6px">${ch?"Only admins can post in a channel.":"What can members do? Admins can always do everything."}</div>`
+  +(ch?"":`<label class="chk"><input type="checkbox" data-pm="can_send" ${d.cs?"checked":""}>Send messages</label><label class="chk"><input type="checkbox" data-pm="can_media" ${d.cm?"checked":""}>Send photos, voice and video</label>`)
+  +`<label class="chk"><input type="checkbox" data-pm="can_react" ${d.cr?"checked":""}>React to messages</label><button class="rowb" data-x="1">Close</button>`);
+ $("sheet").onchange=async e=>{const k=e.target.dataset.pm;if(!k)return;const v=e.target.checked;
+  const r=await sb.from("groups").update({[k]:v}).eq("id",n);if(r.error){e.target.checked=!v;toast("Couldn't update");return}
+  d[{can_send:"cs",can_media:"cm",can_react:"cr"}[k]]=v;if(openChatId()===n)composer(n);toast("Updated")}}
+function gRxHtml(mid){const o=mid&&GRX[mid];if(!o||!me)return"";const c={};
+ Object.keys(o).forEach(u=>{const e=o[u].emoji;(c[e]=c[e]||{n:0,m:0}).n++;if(u===me.id)c[e].m=1});
+ return Object.keys(c).map(e=>`<span class="rxc${c[e].m?" me":""}" data-e="${esc(e)}">${esc(e)}${c[e].n>1?" "+c[e].n:""}</span>`).join("")}
+function updG(mid){const el=document.querySelector('#msgs .b[data-id="'+mid+'"] .rxs');if(el&&openChatId()&&isGrp(openChatId()))el.innerHTML=gRxHtml(mid)}
+async function greact(mid,emoji){if(!me||!mid)return;const n=openChatId(),d=GRP[n];
+ if(d&&d.cr===false&&!isAdm(d)){toast("Reactions are off in this group");return}
+ const mine=(GRX[mid]||{})[me.id],same=mine&&mine.emoji===emoji;
+ if(same)delete GRX[mid][me.id];else(GRX[mid]=GRX[mid]||{})[me.id]={id:mine?mine.id:0,emoji};updG(mid);
+ try{if(same){const r=await sb.from("group_reactions").delete().eq("message_id",mid).eq("user_id",me.id);if(r.error)throw r.error}
+  else{const r=await sb.from("group_reactions").upsert({message_id:mid,user_id:me.id,emoji},{onConflict:"message_id,user_id"}).select("id").single();if(r.error)throw r.error;if(GRX[mid]&&GRX[mid][me.id])GRX[mid][me.id].id=r.data.id}}
+ catch(e){if(mine)(GRX[mid]=GRX[mid]||{})[me.id]=mine;else if(GRX[mid])delete GRX[mid][me.id];updG(mid);toast("Couldn't react")}}
+const _react=react;
+react=function(mid,emoji){const n=openChatId();if(n&&isGrp(n))return greact(mid,emoji);return _react(mid,emoji)};
+async function loadGRx(){try{const r=await sb.from("group_reactions").select("id,message_id,user_id,emoji").limit(5000);if(r.error)return;GRX={};
+ (r.data||[]).forEach(x=>{(GRX[x.message_id]=GRX[x.message_id]||{})[x.user_id]={id:x.id,emoji:x.emoji}});
+ const oc=openChatId();if(oc&&isGrp(oc))drawMsgs(oc,true)}catch(e){}}
+
+/* =====================================================================================
+   Privacy, disappearing messages, call deep links, startup wiring
+   ===================================================================================== */
+function privSheet(){
+ sheet(`<h3>Privacy</h3><label class="chk"><input type="checkbox" data-pv="hide_last_seen" ${SET.hide_last_seen?"checked":""}>Hide last seen and online</label><label class="chk"><input type="checkbox" data-pv="hide_read" ${SET.hide_read?"checked":""}>Hide read receipts</label><div class="sec" style="padding:8px 0">Like WhatsApp: if you hide these, you won't see them for other people either.</div><button class="rowb" data-x="1">Close</button>`);
+ $("sheet").onchange=async e=>{const k=e.target.dataset.pv;if(!k)return;const v=e.target.checked;await saveSet({[k]:v});
+  if(k==="hide_last_seen"){sb.from("profiles").update({hide_ls:v}).eq("id",me.id).then(()=>{});if(pch){try{if(v)pch.untrack();else if(!document.hidden)pch.track({t:Date.now()})}catch(x){}}}
+  paintPresence();if(open6()&&cv)drawMsgs(cv.n,true)}}
+const _ls2=lsText;
+lsText=function(id){if(SET.hide_last_seen&&!TYP[id])return"last seen recently";return _ls2(id)};
+const _stt=settings;
+settings=function(){_stt();const last=pane.querySelector(".grp:last-child");
+ if(last)last.insertAdjacentHTML("beforebegin",'<div class="grp"><div class="row2"><button class="rowb" id="gpv">Privacy</button></div></div>');
+ if($("gpv"))$("gpv").onclick=privSheet};
+
+
+/* ---------- Chat Settings (text size, corners, wallpaper, colours, appearance, behaviour) ---------- */
+const CSWP=[["default","Default",""],["slate","Slate","linear-gradient(160deg,#1f2937,#111827)"],["ocean","Ocean","linear-gradient(160deg,#0f3d52,#0b1620)"],["dusk","Dusk","linear-gradient(160deg,#3b2a5c,#14101f)"],["forest","Forest","linear-gradient(160deg,#164a35,#0b1a14)"],["ember","Ember","linear-gradient(160deg,#5a2a18,#1a0e0a)"],["dots","Dots","radial-gradient(circle,#2f2f36 1.5px,transparent 1.6px) 0 0/14px 14px,#111113"]];
+const CSBC=["#52525b","#3b82f6","#16a34a","#7c3aed","#ea580c","#db2777"],CSNC=["#7c9cff","#f59e0b","#34d399","#f472b6","#a78bfa","#f87171"];
+const csSave=()=>{try{localStorage.setItem("chatset",JSON.stringify(CS))}catch(e){toast("Couldn't save settings")}};
+function csOn(h){const c=h.replace("#",""),r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);return (r*299+g*587+b*114)/1000>150?"#111113":"#ffffff"}
+function applyCS(){let st=$("csx");if(!st){st=document.createElement("style");st.id="csx";document.head.appendChild(st)}
+ let w="";if(CS.wp==="gallery"&&CS.wpd)w="url("+CS.wpd+") center/cover";else{const x=CSWP.find(y=>y[0]===CS.wp);if(x&&x[2])w=x[2]}
+ st.textContent=".b{font-size:"+CS.ts+"px!important;border-radius:"+CS.cr+"px!important}.b.out{background:"+CS.bc+"!important;color:"+csOn(CS.bc)+"!important;--on:"+csOn(CS.bc)+"!important}.b .gsn{color:"+CS.nc+"!important}"+(w?".msgs,.cs-prev{background:"+w+"!important}":"");
+ const r=document.documentElement;if(CS.mode==="Day")r.setAttribute("data-theme","light");else if(CS.mode==="Night")r.setAttribute("data-theme","dark");else r.removeAttribute("data-theme")}
+const fwp=document.createElement("input");fwp.type="file";fwp.accept="image/*";fwp.hidden=true;document.body.appendChild(fwp);
+fwp.onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)pic(f,720,0,d=>{CS.wpd=d;CS.wp="gallery";csSave();applyCS();buildCS()})};
+function buildCS(){const B=$("csb");if(!B)return;
+ const dots=(arr,k)=>arr.map(c=>'<div class="cs-d'+(CS[k]===c?" on":"")+'" data-k="'+k+'" data-v="'+c+'" style="background:'+c+'"></div>').join("");
+ const tl=CSWP.map(w=>'<div class="cs-t'+(CS.wp===w[0]?" on":"")+'" data-w="'+w[0]+'" style="background:'+(w[2]||"var(--card)")+';'+(w[0]==="default"?"color:var(--fg);border-color:var(--line)":"")+'">'+w[1]+'</div>').join("")+'<div class="cs-t'+(CS.wp==="gallery"?" on":"")+'" data-w="gallery" style="background:'+(CS.wpd?"url("+CS.wpd+") center/cover":"#2a2a2e")+'">'+(CS.wpd?"":"+ Gallery")+'</div>';
+ const tg=[["enter","Enter key sends message"],["swipe","Swipe right to reply"],["dbl","Double-tap = ❤️ reaction"],["ap","Auto-play videos (muted)"]].map(t=>'<div class="cs-r" data-t="'+t[0]+'"><span>'+t[1]+'</span><div class="cs-sw'+(CS[t[0]]?" on":"")+'"></div></div>').join("");
+ B.innerHTML='<div class="cs-prev"><div class="b in"><div class="gsn">Sohil</div>Good morning! What time is it there?</div><div class="b out">Almost lunchtime here 😎</div></div>'
+ +'<div class="cs-h">Text size</div><div class="cs-c"><div class="cs-sl"><span>A</span><input type="range" id="cs-ts" min="12" max="24" value="'+CS.ts+'"><span style="font-size:22px">A</span><b id="cs-tsv">'+CS.ts+'</b></div></div>'
+ +'<div class="cs-h">Bubble corners</div><div class="cs-c"><div class="cs-sl"><span>▢</span><input type="range" id="cs-cr" min="2" max="26" value="'+CS.cr+'"><span>◯</span><b id="cs-crv">'+CS.cr+'</b></div></div>'
+ +'<div class="cs-h">Wallpaper</div><div class="cs-c"><div class="cs-tl">'+tl+'</div></div>'
+ +'<div class="cs-h">My bubble colour</div><div class="cs-c"><div class="cs-ds">'+dots(CSBC,"bc")+'</div></div>'
+ +'<div class="cs-h">Name colour in groups</div><div class="cs-c"><div class="cs-ds">'+dots(CSNC,"nc")+'</div></div>'
+ +'<div class="cs-h">Appearance</div><div class="cs-c"><div class="cs-seg">'+["System","Night","Day"].map(m=>'<button data-m="'+m+'" class="'+(CS.mode===m?"on":"")+'">'+m+'</button>').join("")+'</div></div>'
+ +'<div class="cs-h">Behaviour</div><div class="cs-c">'+tg+'</div>'
+ +'<button class="rowb" id="cs-rs" style="margin-top:18px">Reset to default</button>';
+ B.onclick=e=>{const t=e.target.closest("[data-w],[data-k],[data-m],[data-t],#cs-rs");if(!t)return;
+  if(t.dataset.w){if(t.dataset.w==="gallery"){fwp.click();return}CS.wp=t.dataset.w}
+  else if(t.dataset.k){CS[t.dataset.k]=t.dataset.v}
+  else if(t.dataset.m){CS.mode=t.dataset.m}
+  else if(t.dataset.t){CS[t.dataset.t]=CS[t.dataset.t]?0:1}
+  else if(t.id==="cs-rs"){CS=Object.assign({},CSD)}
+  csSave();applyCS();const y=B.scrollTop;buildCS();B.scrollTop=y};
+ B.oninput=e=>{if(e.target.id==="cs-ts"){CS.ts=+e.target.value;$("cs-tsv").textContent=CS.ts}else if(e.target.id==="cs-cr"){CS.cr=+e.target.value;$("cs-crv").textContent=CS.cr}else return;csSave();applyCS()}}
+$("csbk").onclick=()=>show(4);
+applyCS();
+/* Enter key can be turned off */
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target&&e.target.id==="mi"&&!CS.enter){e.stopPropagation();e.preventDefault()}},true);
+/* double-tap a message = ❤️ */
+(function(){let lt=0,lid=0;$("msgs").addEventListener("click",e=>{if(!CS.dbl||SEL.size)return;const b=e.target.closest(".b[data-id]");if(!b||e.target.closest("a,video,.vn,button,.qt,img"))return;const id=+b.dataset.id;if(!id)return;const t=Date.now();
+ if(id===lid&&t-lt<320){lt=0;const n=openChatId(),g=n&&isGrp(n),mine=((g?GRX[id]:RX[id])||{})[me.id];if(!(mine&&mine.emoji==="❤️"))(g?greact:react)(id,"❤️")}else{lid=id;lt=t}})})();
+/* Settings tab: Chat Settings + Delete account */
+function delAccSheet(){sheet('<h3>Delete account?</h3><div class="sec" style="padding:0 0 10px">Your profile, messages, stories and any groups or channels you own will be permanently deleted. This can\'t be undone. Type DELETE to confirm.</div><input id="dac" placeholder="DELETE" autocapitalize="characters" autocomplete="off" style="margin-bottom:10px"><button class="rowb out" id="dacy" disabled>Delete my account</button><button class="rowb" data-x="1">Cancel</button>');
+ $("dac").oninput=()=>{$("dacy").disabled=$("dac").value.trim()!=="DELETE"};
+ $("dacy").onclick=async()=>{$("dacy").disabled=true;try{const r=await sb.functions.invoke("delete-account",{body:{confirm:"DELETE"}});if(r.error||!r.data||!r.data.ok)throw(r.error||new Error("failed"));unsheet();try{await logout()}catch(e){}toast("Account deleted")}catch(e){$("dacy").disabled=false;toast("Couldn't delete account, try again")}}}
+const _stCS=settings;settings=function(){_stCS();const g=$("gpv")&&$("gpv").closest(".grp");
+ if(g)g.insertAdjacentHTML("beforebegin",'<div class="grp"><div class="row2"><button class="rowb" id="gcs">Chat Settings</button></div></div>');
+ if($("gcs"))$("gcs").onclick=()=>{buildCS();show(9)};
+ pane.insertAdjacentHTML("beforeend",'<div class="grp"><div class="row2"><button class="rowb out" id="gdl">Delete account</button></div></div>');
+ if($("gdl"))$("gdl").onclick=delAccSheet};
+/* drafts show in the chat list */
+const _chatsD=chats;chats=function(){_chatsD();if($("q").value.trim())return;pane.querySelectorAll(".it[data-k]").forEach(it=>{const dr=getDraft(it.dataset.k);if(!dr)return;const sx=it.querySelector(".t .s");if(sx)sx.innerHTML='<span style="color:var(--err)">Draft:</span> '+esc(dr.slice(0,60))})};
+
+
+/* live username check: one name can be used only once across people, groups and channels */
+const UNT={},UNS={};
+function unWatch(inp,hint,btn,self,active){const el=$(inp);if(!el)return;
+ el.addEventListener("input",()=>{clearTimeout(UNT[inp]);const u=el.value.trim().toLowerCase();
+  if(!okUn(u)||u===self()||(active&&!active()))return;const sq=UNS[inp]=(UNS[inp]||0)+1;
+  UNT[inp]=setTimeout(async()=>{let r;try{r=await sb.rpc("username_available",{p_username:u})}catch(e){return}
+   if(sq!==UNS[inp]||el.value.trim().toLowerCase()!==u||(active&&!active()))return;
+   if(r&&r.data===false){$(hint).textContent="Username unavailable";$(hint).className="hint bad";$(btn).disabled=true}},350)})}
+unWatch("un","h3","b3",()=>"");
+unWatch("eun","h5","sv",()=>(me&&me.username)||"");
+unWatch("nun","h8","ncr",()=>"",()=>pub);
+/* disappearing messages (per chat, both sides) */
+const pair=n=>me.id<n?[me.id,n]:[n,me.id];
+async function loadTimers(){try{const r=await sb.from("chat_timers").select("user_a,user_b,secs");if(r.error)return;TIMERS={};(r.data||[]).forEach(x=>{const o=x.user_a===me.id?x.user_b:x.user_a;if(x.secs>0)TIMERS[o]=x.secs})}catch(e){}}
+function timerSheet(n){const cur=TIMERS[n]||0,rows=[[0,"Off"],[3600,"1 hour"],[86400,"24 hours"],[604800,"7 days"],[7776000,"90 days"]];
+ sheet('<h3>Disappearing messages</h3><div class="sec" style="padding:0 0 8px">New messages in this chat are deleted for both of you after the time you choose.</div>'+rows.map(([s,l])=>`<button class="rowb sp" data-t="${s}"><span>${l}</span><span>${s===cur?"✓":""}</span></button>`).join("")+'<button class="rowb" data-x="1">Close</button>');
+ $("sheet").onchange=null;$("sheet").querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{unsheet();setTimer(n,+b.dataset.t)})}
+async function setTimer(n,secs){const p=pair(n);
+ const r=await sb.from("chat_timers").upsert({user_a:p[0],user_b:p[1],secs,set_by:me.id,updated_at:new Date().toISOString()},{onConflict:"user_a,user_b"});
+ if(r.error){toast("Couldn't change the timer");return}
+ if(secs)TIMERS[n]=secs;else delete TIMERS[n];
+ if(openChatId()===n)showChat(n);toast(secs?"Messages will disappear after "+TL[secs]:"Disappearing messages off")}
+function sweep(){const now=Date.now(),ids=[];let ch=false;
+ Object.keys(MSG).forEach(k=>{const keep=[];MSG[k].forEach(x=>{if(x.ex&&x.ex<=now){ch=true;if(x.id>0)ids.push(x.id)}else keep.push(x)});if(keep.length!==MSG[k].length)MSG[k]=keep});
+ if(ids.length)sb.from("messages").delete().in("id",ids).then(()=>{});
+ if(ch){const oc=openChatId();if(oc)drawMsgs(oc,true);else if(!$("s4").classList.contains("hide"))render()}}
+
+/* call + group links from notifications: rackgram://call?id=..&accept=1 , rackgram://group?id=.. */
+function handleDeep(url){let u;try{u=new URL(url)}catch(e){return}
+ if(u.protocol!=="rackgram:")return;
+ if(!me||!X.ready){X.deep=url;return}
+ const id=u.searchParams.get("id");if(!id)return;
+ if(u.host==="call")pickCall(id,u.searchParams.get("accept")==="1");
+ else if(u.host==="group"){if(GRP[id]&&GRP[id].member)openGroup(id);else loadGroups().then(()=>{if(GRP[id]&&GRP[id].member)openGroup(id)})}}
+async function pickCall(id,accept){
+ if(CALL)return;
+ let row=null;try{const r=await sb.from("call_participants").select("*").eq("call_id",id).eq("user_id",me.id).maybeSingle();row=r.data}catch(e){}
+ if(!row||row.status!=="invited"){toast("This call has ended");return}
+ await onInvite(row);
+ if(!RING||RING.id!==id){if(!CALL)toast("This call has ended");return}
+ if(accept)$("k_acc").onclick()}
+(function(){const A=capPlug("App");if(!A)return;
+ try{A.addListener("appUrlOpen",e=>handleDeep(e.url))}catch(e){}
+ try{if(A.getLaunchUrl)Promise.resolve(A.getLaunchUrl()).then(r=>{if(r&&r.url)handleDeep(r.url)}).catch(()=>{})}catch(e){}})();
+
+/* mount extra elements */
+function mount(){if($("cbar"))return;
+ const bar=document.createElement("div");bar.id="cbar";bar.className="cbar hide";$("cin").insertAdjacentElement("beforebegin",bar);
+ const sr=document.createElement("div");sr.id="csr";sr.className="csr hide";$("s6").querySelector(".top").insertAdjacentElement("afterend",sr);
+ const sd=document.createElement("button");sd.id="sdn";sd.className="hide";sd.setAttribute("aria-label","Scroll to latest");sd.textContent="↓";
+ sd.onclick=()=>{const m=$("msgs");m.scrollTo({top:m.scrollHeight,behavior:"smooth"})};$("s6").appendChild(sd);
+ const gf=document.createElement("input");gf.type="file";gf.id="fgdp";gf.accept="image/*";gf.hidden=true;gf.onchange=e=>{const f=e.target.files[0];e.target.value="";if(f&&X.gpn)groupPhoto(X.gpn,f)};document.body.appendChild(gf);
+ const fv=document.createElement("input");fv.type="file";fv.id="fvid";fv.accept="video/*";fv.hidden=true;fv.onchange=onVidPick;document.body.appendChild(fv)}
+mount();
+
+/* startup / shutdown wiring */
+async function initFeatures(){
+ mount();
+ if(ST.mine.length||ST.order.length){ST.mine=[];ST.order=[];ST.msgs={};sv_();DATA.length=0;toast("Old phone-only groups were removed. Create real ones with the pencil button.")}
+ await Promise.all([loadPrefs(),loadTimers()]);
+ await loadGroups();await loadGRx();startGroupRT();
+ if(!pfch)pfch=sb.channel("rackgram-prefs").on("postgres_changes",{event:"*",schema:"public",table:"chat_prefs"},e=>{const x=e.new,o=e.old;
+  if(e.eventType==="DELETE"){if(o&&o.chat_id)delete PREFS[o.chat_id]}else if(x&&x.chat_id)PREFS[x.chat_id]={pinned:!!x.pinned,archived:!!x.archived};
+  if(!$("s4").classList.contains("hide"))render()}).subscribe();
+ if(!tmch)tmch=sb.channel("rackgram-timers").on("postgres_changes",{event:"*",schema:"public",table:"chat_timers"},e=>{const x=e.new;if(!x||!x.user_a)return;
+  const o=x.user_a===me.id?x.user_b:x.user_a;if(x.secs>0)TIMERS[o]=x.secs;else delete TIMERS[o];if(openChatId()===o)showChat(o)}).subscribe();
+ restorePending();
+ sweep();clearInterval(sweepT);sweepT=setInterval(sweep,15000);
+ clearInterval(obT);obT=setInterval(flushOB,12000);flushOB();
+ X.ready=true;if(X.deep){const u=X.deep;X.deep=null;handleDeep(u)}
+ render()}
+function stopFeatures(){
+ [gch,tmch,pfch].forEach(c=>{try{if(c)sb.removeChannel(c)}catch(e){}});gch=tmch=pfch=null;
+ clearInterval(sweepT);clearInterval(obT);clearTimeout(gTimer);
+ if(me){OB=OB.filter(e=>e.u!==me.id);saveOB()}
+ Object.keys(GRP).forEach(k=>delete GRP[k]);Object.keys(GM).forEach(k=>delete GM[k]);
+ PREFS={};TIMERS={};GMEM={};GRX={};GREAD={};saveGR();X.gl=null;X.ready=false;X.arch=false;X.reply=null;X.edit=null;X.cn=null;closeSearch(true)}
+const _sr=startReal;
+startReal=async function(){await _sr();try{await initFeatures()}catch(e){}};
+const _iu=initUser;
+initUser=async function(){await _iu();
+ try{if(pch&&!pch._w){const t=pch.track.bind(pch);pch.track=(...a)=>SET.hide_last_seen?Promise.resolve():t(...a);pch._w=1;if(SET.hide_last_seen){try{pch.untrack()}catch(e){}}}}catch(e){}
+ try{sb.from("profiles").update({hide_ls:!!SET.hide_last_seen}).eq("id",me.id).then(()=>{})}catch(e){}};
+const _lo=logout;
+logout=async function(){try{stopFeatures()}catch(e){}await _lo()};
+addEventListener("online",flushOB);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&me&&X.ready){flushOB();if(Date.now()-(X.glAt||0)>60000){X.glAt=Date.now();loadGroups()}}});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "474573886334",
+    "project_id": "rackgram-70bf8",
+    "storage_bucket": "rackgram-70bf8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:474573886334:android:1176008cee2862f932d92f",
+        "android_client_info": {
+          "package_name": "com.rackgram.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC63YGKZof-qSn8ARHyNBRSSj6JHadg3jw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

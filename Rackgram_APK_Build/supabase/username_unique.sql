@@ -1,0 +1,3 @@
+-- Applied to project rjdcajjtfchyfvsfmohp: a username can be used only once across profiles AND groups/channels.
+-- Triggers raise 23505 (the app shows "Username unavailable"); public.username_available() is the live check.
+-- (see migration username_unique_across_users_and_groups)

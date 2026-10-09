@@ -1,0 +1,84 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Arrange files
+        run: |
+          mkdir -p www assets
+          cp index.html www/index.html
+          cp icon-only.png icon-foreground.png icon-background.png assets/
+      - run: npm install
+      - name: Bundle libs locally (faster launch, works offline)
+        run: |
+          cp node_modules/@supabase/supabase-js/dist/umd/supabase.js www/supabase.js || echo "supabase local copy failed, CDN fallback will be used"
+          cp node_modules/livekit-client/dist/livekit-client.umd.js www/livekit-client.umd.js || echo "livekit local copy failed, CDN fallback will be used"
+          ls -la www
+      - run: npx cap add android
+      - name: Add Firebase config
+        run: cp google-services.json android/app/google-services.json
+      - name: Add call permissions (camera, mic)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-feature android:name="android.hardware.microphone" android:required="false" />\n    <application#' "$M"
+          grep -n "uses-permission" "$M"
+      - name: Add native notification code (Reply / React buttons)
+        run: |
+          D=android/app/src/main/java/com/rackgram/app
+          mkdir -p "$D"
+          cp android-native/*.java "$D"/
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<manifest xmlns:android#<manifest xmlns:tools="http://schemas.android.com/tools" xmlns:android#' "$M"
+          sed -i 's#</application>#    <service android:name=".RackgramMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>\n    <service android:name="com.capacitorjs.plugins.pushnotifications.MessagingService" tools:node="remove" />\n    <receiver android:name=".NotifActionReceiver" android:exported="false" />\n    </application>#' "$M"
+          sed -i '/^dependencies {/a\    implementation "com.google.firebase:firebase-messaging:24.1.0"' android/app/build.gradle
+          cat "$M"
+          grep -n "firebase-messaging" android/app/build.gradle
+      - name: Add rackgram:// deep links (call answer, group open from notifications)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i '0,/<\/activity>/s#</activity>#    <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="rackgram" /></intent-filter>\n        </activity>#' "$M"
+          grep -n "rackgram" "$M"
+      - run: npx capacitor-assets generate --android || true
+      - name: Clean splash (dark background, no gray box)
+        run: |
+          R=android/app/src/main/res
+          find $R -name 'splash*.png' -delete
+          cat > $R/drawable/splash.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"><solid android:color="#111113"/></shape>
+          XML
+          cat > $R/drawable/splash_empty.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"><solid android:color="#00000000"/><size android:width="1dp" android:height="1dp"/></shape>
+          XML
+          python3 - <<'PY'
+          import re
+          p='android/app/src/main/res/values/styles.xml'
+          s=open(p).read()
+          add='<item name="windowSplashScreenBackground">#111113</item><item name="windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>'
+          s=re.sub(r'(<style name="AppTheme.NoActionBarLaunch"[^>]*>)',lambda m:m.group(1)+add,s)
+          open(p,'w').write(s)
+          PY
+          cat android/app/src/main/res/values/styles.xml
+      - run: npx cap sync android
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rackgram-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
